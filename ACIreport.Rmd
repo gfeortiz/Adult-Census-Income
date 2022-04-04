@@ -1,0 +1,656 @@
+---
+title: "Adult Census Income"
+subtitle: "Data Science: Capstone Proyect Report"
+author: "Guillermo Ortiz"
+date: "3/7/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary
+
+The Adult Census Income dataset was extracted from the 1994 Census bureau database by Ronny Kohavi and Barry Becker. It stores the information of adults from the entire US on their socioeconomic and demographic characteristics. The task is to predict whether or not adults earn more than 50K US dollars a year, based on the aforementioned characteristics. I choose the best model using the accuracy metric. Finally, I use a completely different set of observations for validation purposes. After exploring the data and developing some models, I reach an accuracy of 0.857.
+
+## Introduction
+
+As Chakrabarty & Biswas (2018) point out, inequality in wealth and income is a major source of worry, particularly in the United States. Thus, one reasonable motivation to lessen the world's rising level of economic disparity is the possibility of reducing poverty. The notion of universal moral equality promotes long-term development and improves a country's economic stability. Governments in several countries have been working hard to address this issue and find the best answer possible.
+
+In this project, the goal is to utilize machine learning and data mining techniques to help to properly diagnose the problem of income inequality. The Adult Dataset from UCI is utilized for doing this. The Adult Census Income dataset was extracted from the 1994 Census bureau database by Ronny Kohavi and Barry Becker. It stores the information of adults from the entire US on their socioeconomic and demographic characteristics. The classification task of this project is to determine if a person's annual income in the United States is greater than 50K or less than 50K, using several socioeconomic and demographic characteristics of the population as predictors.
+
+In the first section I will load the packages that will be used. In the second section I will download the data both for modeling and for validation purposes. In the third section I start exploring the data and briefly evaluating each of the variables. In the fourth section I will prepare the data for modeling and analysis. The fifth section will focus on modeling and evaluation of algorithms, after which the best algorithm will be chosen. The sixth section will apply the best algorithm on all the data and evaluate its predictions on the dataset available for validation purposes only. Finally, some concluding remarks will finish this report.
+
+## Section 1: Packages & Options
+
+In this section, I load the packages that will be used and set the preferable options for analysis and output printing. 
+
+```{r, warning=FALSE, message=FALSE}
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(caret)) install.packages("caret")
+if(!require(fastDummies)) install.packages("fastDummies")
+if(!require(gridExtra)) install.packages("gridExtra")
+if(!require(broom)) install.packages("broom")
+
+library(tidyverse)
+library(caret)
+library(fastDummies)
+library(gridExtra)
+library(broom)
+options(digits = 4)
+options(scipen = 999)
+```
+
+
+## Section 2: Data Loading
+
+The data is downloaded directly from the University of california Irvine's (UCI) Machine Learning Repository. It consists of two separate datasets: the *adult* dataset (used for modeling and analysis) and the *adult.test* dataset (used for validation and evaluation purposes). I decided to change the name of the *adult.test* dataset to *adult.validation*, in order to avoid confusion with the *test* set I will use to train the algorithm.
+
+```{r}
+adult <- read.csv(url("https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"),
+         header=FALSE, col.names = c("age", "workclass", "fnlwgt","education",
+                                     "education.num", "marital.status", "occupation",
+                                     "relationship", "race", "sex", "capital.gain",
+                                     "capital.loss", "hours.per.week",
+                                     "native.country", "income"))
+
+adult.validation <- read.csv(url("https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.test"),
+                  header=FALSE, col.names = c("age", "workclass", "fnlwgt","education",
+                                              "education.num","marital.status",
+                                              "occupation", "relationship", "race",
+                                              "sex", "capital.gain", "capital.loss",
+                                              "hours.per.week","native.country",
+                                              "income"))
+
+adult.validation <- adult.validation[-1,] %>% mutate(age=as.integer(age))
+```
+
+## Section 3: Data Exploration
+
+In this section, I will briefly explore the adult dataset and try to find some patterns and data characteristics that can be useful for prediction.
+
+I start observing the structure of the data.
+
+```{r}
+# Structure of dataset
+str(adult)
+```
+
+There are 15 variables in the adult dataset and 32,561 observations. The variables are: age, workclass, fnlwgt, education, education.num, marital.status, occupation, relationship, race, sex, capital.gain, capital.loss, hour.per.week, native.country and income. There are 8 character variables and 7 numeric (integer) variables. The goal is to predict (classify) the variable income and to determine whether a person earns more or less than 50K US dollars a year.
+
+Next, I proceed to print the summary of the data, and show barplots/histograms for each variable to have a sense of what is the information contained in them.
+
+```{r}
+# Summary of dataset
+summary(adult)
+```
+
+
+
+\newpage
+
+```{r, fig.height=4.2}
+# Barplot for each variable in dataset
+for (i in 1:15) {
+  table(adult[i]) %>% barplot(las=2, main=colnames(adult)[i])
+}
+```
+
+\newpage
+
+After looking at the variables' distributions, I get a sense on what is the information they contain and how I can properly use them.
+
+### Relationship among variables and income
+
+To deepen the analysis, I now make a plot of each variable and their relationship with the variable *income*, which is the one I will try to predict. More specifically, I plot the probability of income being greater than 50K, conditional on taking a specific value on each variable.
+
+
+```{r, fig.height=5}
+# Age
+adult %>% 
+  mutate(x = round(age)) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By age") +
+  labs(x="Age", y="Prop. of >50K")
+```
+
+Apparently, the relationship between age and income seems to be quadratic.
+
+\newpage
+
+```{r, fig.height=5}
+# Workclass
+adult %>% 
+  mutate(x = workclass) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By workclass") +
+  labs(x="Workclass", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Apparently, the probability of earning more than 50K a year conditional on being self-employed is greater than conditioning on other workclasses.
+
+\newpage
+
+```{r, fig.height=5}
+# Education
+adult %>% 
+  mutate(x = education) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By education") +
+  labs(x="Education", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Apparently, the probability of earning more than 50K a year conditional on having a doctorate degree or being a professor is greater than conditioning on other education levels.
+
+\newpage
+
+```{r, fig.height=5}
+# Years of education
+adult %>% 
+  mutate(x = round(education.num)) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+                         "By years of education") +
+  labs(x="Years of education", y="Prop. of >50K")
+```
+
+Apparently, more years of education correlates with greater probability of earning more than 50K a year. The relationship seems to be quadratic or exponential.
+
+\newpage
+
+```{r, fig.height=5}
+# Marital status
+adult %>% 
+  mutate(x = marital.status) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By marital status") +
+  labs(x="Marital status", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Apparently, married people tend to have a greater probability of earning 50K or more a year than other marital status.
+
+\newpage
+
+```{r, fig.height=5}
+# Occupation
+adult %>% 
+  mutate(x = occupation) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By occupation") +
+  labs(x="Occupation", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Apparently, the probability of earning more than 50K a year conditional on working on executive or managerial positions or as professionals is greater than conditioning on other occupations.
+
+\newpage
+
+```{r, fig.height=5}
+# Relationship
+adult %>% 
+  mutate(x = relationship) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By relationship") +
+  labs(x="Relationship", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Again, married people seems to have greater probability of earning more than 50K a year.
+
+\newpage
+
+```{r, fig.height=5}
+# Race
+adult %>% 
+  mutate(x = race) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By race") +
+  labs(x="Race", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Apparently, the probability of earning more than 50K a year conditional on being white or asian is greater than conditioning on other races.
+
+\newpage
+
+```{r, fig.height=5}
+# Sex
+adult %>% 
+  mutate(x = sex) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By sex") +
+  labs(x="Sex", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Apparently, males have greater probability of earning more than 50K a year than females.
+
+\newpage
+
+```{r, fig.height=5}
+# Capital gains > 0
+adult %>% 
+  mutate(x = capital.gain>0) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By capital gain") +
+  labs(x="Capital gain", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Intuitively, people with capital gains have greater probability of earning 50K or more a year than people without capital gains.
+
+\newpage
+
+```{r, fig.height=5}
+# Capital loss > 0
+adult %>% 
+  mutate(x = capital.loss>0) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By capital loss") +
+  labs(x="Capital loss", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Similar to the previous variable, people with capital losses have greater probability of earning 50K or more a year than people without capital losses. These may reflect the fact that people involved with capital markets are the people with income in the higher percentiles.
+
+\newpage
+
+```{r, fig.height=5}
+# Hours per week
+adult %>% 
+  mutate(x = round(hours.per.week)) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By hours per week") +
+  labs(x="Hours per week", y="Prop. of >50K")
+```
+
+Apparently, the relationship between hours per week and income seems to be cubed.
+
+\newpage
+
+```{r, fig.height=5}
+# Native Country
+adult %>% 
+  mutate(x = native.country) %>%
+  group_by(x) %>%
+  filter(n() >= 10) %>%
+  summarise(prop = mean(income == " >50K")) %>%
+  ggplot(aes(x, prop)) +
+  geom_point() +
+  ggtitle("Proportion of people with income above 50K",
+          "By native country") +
+  labs(x="Native country", y="Prop. of >50K") + 
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+Finally, there is high variability in the probabilities of income above 50K a year controlled for native country. In addition, I find very few observations of people with some native countries for these probabilities to be stable.
+
+\newpage
+
+## Section 4: Data Preparation
+
+In this section, I proceed to prepare the data for modeling and analysis.
+
+First, I trim the string data to avoid problems in the code coming for misspelling spaces.
+
+```{r}
+# Triming string data
+adult <- adult %>% mutate(
+  workclass = str_trim(workclass),
+  education = str_trim(education),
+  marital.status = str_trim(marital.status),
+  occupation = str_trim(occupation),
+  relationship = str_trim(relationship),
+  race = str_trim(race),
+  sex = str_trim(sex),
+  native.country = str_trim(native.country),
+  income = str_trim(income)
+)
+```
+
+Secondly, I replace all hyphens with underscore to facilitate coding and avoid having to write backticks in every code line.
+
+```{r}
+# Replacing all hyphens with underscore
+adult <- adult %>% mutate(
+  workclass = str_replace_all(workclass, "-", "_"),
+  education = str_replace_all(education, "-", "_"),
+  marital.status = str_replace_all(marital.status, "-", "_"),
+  occupation = str_replace_all(occupation, "-", "_"),
+  relationship = str_replace_all(relationship, "-", "_"),
+  race = str_replace_all(race, "-", "_"),
+  sex = str_replace_all(sex, "-", "_"),
+  native.country = str_replace_all(native.country, "-", "_"),
+  income = str_replace_all(income, "-", "_")
+)
+```
+
+Finally, to start modeling, I create two sets of data from the adult dataset: the train set and the test set.
+
+```{r}
+# Training set and test set
+set.seed(1)
+
+test_index <- createDataPartition(y = adult$income, times = 1, p = 0.2, 
+                                  list = FALSE)
+
+train <- adult[-test_index,]
+test <- adult[test_index,]
+
+rm(test_index)
+```
+
+## Section 5: Methods & Analysis
+
+In this section I will proceed with the classification exercise.
+
+After having evaluated the data and since the outcome variable is binary, I decided to use logistic regression as my main machine learning classification technique.
+
+According to Belyadi and Haghighat (2021), Logistic regression is a very powerful supervised machine learning algorithm used for binary classification problems. The best way to think about logistic regression is that it is a linear regression but for classification problems. Logistic regression essentially uses a logistic function to model a binary output variable (Tolles & Meurer, 2016). The primary difference between linear regression and logistic regression is that logistic regression's range is bounded between 0 and 1. In addition, as opposed to linear regression, logistic regression does not require a linear relationship between inputs and output variables. This is due to applying a nonlinear log transformation to the odds ratio.
+
+### Method 1: Logistic regression with few variables
+
+In this first attempt, which I will call the *judgement model* or the *parsimonious model*, I will use as predictors only the set of variables I consider may be the most useful for classification. These variables include: age, age squared, years of education, years of education squared, marital status (married or not), race (white/asian or not), capital gains, capital losses, sex (male or not), hours per week, hours per week squared and hours per week cubed.
+
+First I prepare the datasets to include some transformed variables.
+
+```{r, warning=FALSE, message=FALSE}
+train1 <- train %>% mutate(
+  agesq = age^2,
+  education.numsq = education.num^2,
+  married=ifelse(marital.status=="Married_civ_spouse"|
+                   marital.status=="Married_AF_spouse", 1, 0),
+  whiteasian=ifelse(race=="White"|
+                      race=="Asian_Pac_Islander", 1, 0),
+  male=ifelse(sex=="Male", 1, 0),
+  hours.per.weeksq=hours.per.week^2,
+  hours.per.weekcub=hours.per.week^3
+)
+
+test1 <- test %>% mutate(
+  agesq = age^2,
+  education.numsq = education.num^2,
+  married=ifelse(marital.status=="Married_civ_spouse"|
+                   marital.status=="Married_AF_spouse", 1, 0),
+  whiteasian=ifelse(race=="White"|
+                      race=="Asian_Pac_Islander", 1, 0),
+  male=ifelse(sex=="Male", 1, 0),
+  hours.per.weeksq=hours.per.week^2,
+  hours.per.weekcub=hours.per.week^3
+)
+
+```
+
+Then I proceed to run the regression.
+
+```{r, warning=FALSE, message=FALSE}
+fit_glm1 <- train1 %>% mutate(y=as.numeric(income==">50K")) %>%
+  glm(y ~ age + agesq + education.num + education.numsq +
+        married + whiteasian + capital.gain + capital.loss + 
+        male + hours.per.week + hours.per.weeksq + 
+        hours.per.weekcub,
+      data=., family = "binomial")
+
+summary(fit_glm1)
+
+p_hat_glm1 <- predict(fit_glm1, test1, type="response")
+
+y_hat_glm1 <- factor(ifelse(p_hat_glm1 > 0.5, ">50K", "<=50K"))
+
+confusionMatrix(y_hat_glm1, factor(test1$income))
+```
+
+The accuracy I obtained with this first model is 0.853.
+
+
+### Method 2: Logistic regression with all variables of the dataset
+
+In this second attempt, which I will call the *data driven model* or the *long model*, I will use as predictors all the variables in the dataset. In order to properly use the character variables I will create dummy variables for each category in each variable. These is done with the *dummy_cols* function from the *FastDummies* package.
+
+First I prepare the data.
+
+```{r, warning=FALSE, message=FALSE}
+train2 <- dummy_cols(train, 
+                     select_columns = c("workclass", "education",
+                                        "marital.status", "occupation",
+                                        "relationship", "race", "sex",
+                                        "native.country", "income"),
+                     remove_first_dummy = TRUE) %>%
+  select(-workclass, -fnlwgt, -education, -marital.status,
+         -occupation, -relationship, -race, -sex,-native.country,
+         -income)
+
+test2 <- dummy_cols(test, select_columns = c("workclass", "education",
+                                        "marital.status", "occupation",
+                                        "relationship", "race", "sex",
+                                        "native.country", "income"),
+                     remove_first_dummy = TRUE) %>%
+  select(-workclass, -fnlwgt, -education, -marital.status,
+         -occupation, -relationship, -race, -sex, -native.country,
+         -income)
+
+train2 <- train2 %>% select(-`native.country_Holand_Netherlands`)
+```
+
+Secondly, I run the regression.
+
+```{r, warning=FALSE, message=FALSE}
+fit_glm2 <- train2 %>% glm(`income_>50K` ~ ., data=., family = "binomial")
+
+summary(fit_glm2)
+
+p_hat_glm2 <- predict(fit_glm2, test2, type="response")
+
+y_hat_glm2 <- factor(ifelse(p_hat_glm2 > 0.5, 1, 0))
+
+confusionMatrix(y_hat_glm2, factor(test2$`income_>50K`))
+```
+
+The accuracy I obtained with this second model is 0.863.
+
+
+### Method 3: Logistic regression using all information of the dataset and using some judgement
+
+In this third attempt, I combine the methods 1 and 2. This means, to use all the information of the dataset and to include some transformed variables as well.
+
+First I prepare the data.
+
+```{r, warning=FALSE, message=FALSE}
+train3 <- train2 %>% mutate(
+  agesq = age^2,
+  education.numsq = education.num^2,
+  hours.per.weeksq=hours.per.week^2,
+  hours.per.weekcub=hours.per.week^3
+)
+
+
+test3 <- test2 %>% mutate(
+  agesq = age^2,
+  education.numsq = education.num^2,
+  hours.per.weeksq=hours.per.week^2,
+  hours.per.weekcub=hours.per.week^3
+)
+```
+
+Then, I run the regression.
+
+```{r, warning=FALSE, message=FALSE}
+fit_glm3 <- train3 %>% glm(`income_>50K` ~ ., data=., family = "binomial")
+
+summary(fit_glm3)
+
+p_hat_glm3 <- predict(fit_glm3, test3, type="response")
+
+y_hat_glm3 <- factor(ifelse(p_hat_glm3 > 0.5, 1, 0))
+
+confusionMatrix(y_hat_glm3, factor(test3$`income_>50K`))
+```
+
+The accuracy I obtained with this third model is 0.866.
+
+## Section 6: Final Validation
+
+After the analysis conducted in the last section, I decide to choose the third model as the preferred one, given that it is the model that exerted the highest accuracy.
+
+Now I will conduct the classification exercise using the validation set to find the final accuracy of this exercise.
+
+First, I prepare the data.
+
+```{r, warning=FALSE, message=FALSE}
+adult <- dummy_cols(adult,
+                    select_columns = c("workclass", "education",
+                                       "marital.status", "occupation", 
+                                       "relationship", "race", "sex", 
+                                       "native.country", "income"),
+                     remove_first_dummy = TRUE) %>%
+  select(-workclass, -fnlwgt, -education, -marital.status,
+         -occupation, -relationship, -race, -sex,-native.country,
+         -income) %>% 
+  mutate(agesq = age^2,
+         education.numsq = education.num^2,
+         hours.per.weeksq=hours.per.week^2,
+         hours.per.weekcub=hours.per.week^3) %>%
+  select(-native.country_Holand_Netherlands)
+```
+
+Then, I run the regression.
+
+```{r, warning=FALSE, message=FALSE}
+fit_final <- adult %>% glm(`income_>50K` ~ ., data=., family = "binomial")
+
+summary(fit_final)
+```
+
+Finally, I validate the model using the validation set.
+
+```{r, warning=FALSE, message=FALSE}
+#### Preparing validation data
+
+# Triming string data
+
+adult.validation <- adult.validation %>% mutate(
+  workclass = str_trim(workclass),
+  education = str_trim(education),
+  marital.status = str_trim(marital.status),
+  occupation = str_trim(occupation),
+  relationship = str_trim(relationship),
+  race = str_trim(race),
+  sex = str_trim(sex),
+  native.country = str_trim(native.country),
+  income = str_trim(income)
+)
+
+# Replacing all dots and hyphens with underscore
+
+adult.validation <- adult.validation %>% mutate(
+  workclass = str_replace_all(workclass, "-", "_"),
+  education = str_replace_all(education, "-", "_"),
+  marital.status = str_replace_all(marital.status, "-", "_"),
+  occupation = str_replace_all(occupation, "-", "_"),
+  relationship = str_replace_all(relationship, "-", "_"),
+  race = str_replace_all(race, "-", "_"),
+  sex = str_replace_all(sex, "-", "_"),
+  native.country = str_replace_all(native.country, "-", "_"),
+  income = str_replace_all(income, "-", "_")
+)
+
+
+# Adding relevant variables
+
+adult.validation <- dummy_cols(adult.validation,
+                               select_columns = c("workclass", "education",
+                                              "marital.status", "occupation",
+                                              "relationship", "race", "sex",
+                                              "native.country", "income"),
+                    remove_first_dummy = TRUE) %>%
+  select(-workclass, -fnlwgt, -education, -marital.status,
+         -occupation, -relationship, -race, -sex,-native.country,
+         -income) %>% 
+  mutate(agesq = age^2,
+         education.numsq = education.num^2,
+         hours.per.weeksq=hours.per.week^2,
+         hours.per.weekcub=hours.per.week^3)
+
+p_hat_final <- predict(fit_final, adult.validation, type="response")
+
+y_hat_final <- factor(ifelse(p_hat_final > 0.5, 1, 0))
+
+confusionMatrix(y_hat_final, factor(adult.validation$`income_>50K`))
+```
+
+The final accuracy of this exercise is 0.857.
+
+## Conclusion
+
+The Adult Census Income dataset was extracted from the 1994 Census bureau database by Ronny Kohavi and Barry Becker. It stores the information of adults from the entire US on their socioeconomic and demographic characteristics.
+
+The classification task of this project is to determine if a person's annual income in the United States is greater than 50K or less than 50K, using several socioeconomic and demographic characteristics of the population as predictors.
+
+After loading, exploring and preparing the data, I test three different logistic regression models and choose the one that exerts the highest accuracy. The model chosen is a logistic regression that includes all available information of the dataset and also include some transformed variables in order to take advantage of their non-linear relationship with the outcome variable, income greater than 50K a year.
+
+To finish this report, I validate the chosen model by using a completely different dataset and evaluating the accuracy obtained. The final accuracy of this exercise ends up being 0.857.
+
+To further improve the classification exercise, using other types of models such as random forest, knn, lasso, lda or qda may be useful. However, having into account that the dataset includes several variables that can be used as predictors, a very high computational power may be needed to properly train these types of models.
